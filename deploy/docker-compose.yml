@@ -35,7 +35,7 @@ services:
 
   # ── PostgreSQL Database ────────────────────────────────────────────────────
   db:
-    image: supabase/postgres:15.8.1.085
+    image: supabase/postgres:15.14.1.088
     container_name: supabase-db
     restart: unless-stopped
     networks: [ycode-net]
@@ -70,7 +70,7 @@ services:
 
   # ── Analytics (Logflare) ───────────────────────────────────────────────────
   analytics:
-    image: supabase/logflare:1.12.0
+    image: supabase/logflare:1.33.1
     container_name: supabase-analytics
     restart: unless-stopped
     networks: [ycode-net]
@@ -101,7 +101,7 @@ services:
 
   # ── Auth (GoTrue) ─────────────────────────────────────────────────────────
   auth:
-    image: supabase/gotrue:v2.172.1
+    image: supabase/gotrue:v2.187.0
     container_name: supabase-auth
     restart: unless-stopped
     networks: [ycode-net]
@@ -148,7 +148,7 @@ services:
 
   # ── REST API (PostgREST) ──────────────────────────────────────────────────
   rest:
-    image: postgrest/postgrest:v12.2.3
+    image: postgrest/postgrest:v14.5
     container_name: supabase-rest
     restart: unless-stopped
     networks: [ycode-net]
@@ -169,7 +169,7 @@ services:
 
   # ── Realtime ──────────────────────────────────────────────────────────────
   realtime:
-    image: supabase/realtime:v2.33.70
+    image: supabase/realtime:v2.78.0
     container_name: supabase-realtime
     restart: unless-stopped
     networks:
@@ -215,7 +215,7 @@ services:
 
   # ── Storage API ───────────────────────────────────────────────────────────
   storage:
-    image: supabase/storage-api:v1.14.3
+    image: supabase/storage-api:v1.39.1
     container_name: supabase-storage
     restart: unless-stopped
     networks: [ycode-net]
@@ -271,7 +271,7 @@ services:
 
   # ── Postgres Meta ─────────────────────────────────────────────────────────
   meta:
-    image: supabase/postgres-meta:v0.84.2
+    image: supabase/postgres-meta:v0.95.2
     container_name: supabase-meta
     restart: unless-stopped
     networks: [ycode-net]
@@ -291,7 +291,7 @@ services:
 
   # ── Edge Functions ────────────────────────────────────────────────────────
   functions:
-    image: supabase/edge-runtime:v1.65.4
+    image: supabase/edge-runtime:v1.70.5
     container_name: supabase-functions
     restart: unless-stopped
     networks: [ycode-net]
@@ -310,7 +310,7 @@ services:
 
   # ── Supavisor (Connection Pooler) ─────────────────────────────────────────
   supavisor:
-    image: supabase/supavisor:2.4.22
+    image: supabase/supavisor:2.7.4
     container_name: supabase-supavisor
     restart: unless-stopped
     networks: [ycode-net]
