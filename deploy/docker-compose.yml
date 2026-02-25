@@ -368,7 +368,7 @@ services:
 
   # ── Studio Dashboard ──────────────────────────────────────────────────────
   studio:
-    image: supabase/studio:20250211-71e5240
+    image: supabase/studio:2026.02.16-sha-26c615c
     container_name: supabase-studio
     restart: unless-stopped
     networks: [ycode-net]
@@ -484,17 +484,18 @@ services:
         condition: service_healthy
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # CLOUDFLARE TUNNEL
+  # CLOUDFLARE TUNNEL (disabled — using existing Unraid tunnel)
+  # Uncomment if you want a dedicated tunnel for this stack
   # ═══════════════════════════════════════════════════════════════════════════
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
-    restart: unless-stopped
-    networks: [ycode-net]
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      ycode:
-        condition: service_healthy
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: cloudflared
+  #   restart: unless-stopped
+  #   networks: [ycode-net]
+  #   command: tunnel --no-autoupdate run
+  #   environment:
+  #     TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on:
+  #     ycode:
+  #       condition: service_healthy
