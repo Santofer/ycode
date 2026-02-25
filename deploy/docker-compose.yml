@@ -22,6 +22,7 @@ services:
     container_name: supabase-vector
     restart: unless-stopped
     networks: [ycode-net]
+    command: --config /etc/vector/vector.yml
     volumes:
       - ./volumes/logs/vector.yml:/etc/vector/vector.yml:ro
       - ${DOCKER_SOCKET_LOCATION:-/var/run/docker.sock}:/var/run/docker.sock:ro
