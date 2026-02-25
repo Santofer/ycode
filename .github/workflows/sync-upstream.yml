@@ -1,0 +1,74 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    # Every Monday at 6:00 AM UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/ycode/ycode.git
+          git fetch upstream
+
+      - name: Check for new commits
+        id: check
+        run: |
+          BEHIND=$(git rev-list HEAD..upstream/main --count)
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          if [ "$BEHIND" = "0" ]; then
+            echo "Already up to date with upstream"
+          else
+            echo "Found $BEHIND new commit(s) upstream"
+          fi
+
+      - name: Attempt merge
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        run: |
+          if git merge upstream/main --no-edit; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            git push origin main
+          else
+            echo "status=conflict" >> $GITHUB_OUTPUT
+            git merge --abort
+          fi
+
+      - name: Create issue on conflict
+        if: steps.merge.outputs.status == 'conflict'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-sync'
+            });
+            if (issues.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Upstream sync: merge conflicts detected',
+                body: `The automated upstream sync found merge conflicts that need manual resolution.\n\nRun the following to resolve:\n\`\`\`bash\ncd /mnt/user/appdata/ycode/app\ngit fetch upstream\ngit merge upstream/main\n# resolve conflicts\ngit add . && git commit\ngit push\n\`\`\``,
+                labels: ['upstream-sync']
+              });
+            }
