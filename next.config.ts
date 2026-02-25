@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Enable standalone output for Docker deployment
+  output: 'standalone',
+
   images: {
     remotePatterns: [
       {
@@ -8,6 +11,16 @@ const nextConfig: NextConfig = {
         hostname: '**.supabase.co',
         pathname: '/storage/v1/object/public/**',
       },
+      // Self-hosted Supabase storage (configure SELF_HOSTED_SUPABASE_HOSTNAME env var)
+      ...(process.env.SELF_HOSTED_SUPABASE_HOSTNAME
+        ? [
+            {
+              protocol: 'https' as const,
+              hostname: process.env.SELF_HOSTED_SUPABASE_HOSTNAME,
+              pathname: '/storage/v1/object/public/**',
+            },
+          ]
+        : []),
     ],
   },
 
