@@ -465,7 +465,7 @@ export default function ComponentVariablesDialog({
                   </div>
                 )}
 
-                <Separator className="my-1" />
+                <Separator className="my-0.5" />
 
                 <div className="grid grid-cols-3 items-start">
                   <Label variant="muted" className="pt-2">Default</Label>

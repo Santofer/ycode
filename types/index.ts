@@ -296,6 +296,7 @@ export interface Layer {
     audio?: Record<string, ComponentVariableValue>; // ComponentVariable.id → override value (audio)
     video?: Record<string, ComponentVariableValue>; // ComponentVariable.id → override value (video)
     icon?: Record<string, ComponentVariableValue>; // ComponentVariable.id → override value (icon)
+    variableLinks?: Record<string, string>; // childVariableId → parentVariableId (pass-through from nested component to parent)
   };
 
   // Layer variables (layer collection data & dynamic data for texts, assets, links)

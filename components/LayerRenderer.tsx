@@ -43,7 +43,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore';
 import { generateLinkHref, type LinkResolutionContext } from '@/lib/link-utils';
 import type { HiddenLayerInfo } from '@/lib/animation-utils';
 import AnimationInitializer from '@/components/AnimationInitializer';
-import { transformLayerIdsForInstance } from '@/lib/resolve-components';
+import { transformLayerIdsForInstance, resolveVariableLinks } from '@/lib/resolve-components';
 
 import type { DesignColorVariable } from '@/types';
 
@@ -1146,6 +1146,14 @@ const LayerItem: React.FC<{
         { ...transformedComponentLayers[0], id: layer.id },
         ...transformedComponentLayers.slice(1),
       ];
+
+      // Resolve variableLinks: if this nested component instance links child variables
+      // to parent variables, merge the parent's override/default values into the
+      // instance overrides so children see the correct values.
+      const effectiveOverrides = layer.componentOverrides?.variableLinks
+        ? resolveVariableLinks(layer.componentOverrides, parentComponentOverrides, parentComponentVariables)
+        : layer.componentOverrides;
+
       return (
         <LayerRenderer
           layers={layersWithInstanceId}
@@ -1154,7 +1162,7 @@ const LayerItem: React.FC<{
           activeLayerId={activeLayerId}
           projected={projected}
           parentComponentLayerId={layer.id}
-          parentComponentOverrides={layer.componentOverrides}
+          parentComponentOverrides={effectiveOverrides}
           parentComponentVariables={component?.variables}
         />
       );

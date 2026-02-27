@@ -2,10 +2,10 @@ import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { buildSlugPath, buildDynamicPageUrl, buildLocalizedSlugPath, buildLocalizedDynamicPageUrl, detectLocaleFromPath, matchPageWithTranslatedSlugs, matchDynamicPageWithTranslatedSlugs } from '@/lib/page-utils';
 import { getItemWithValues, getItemsWithValues } from '@/lib/repositories/collectionItemRepository';
 import { getFieldsByCollectionId } from '@/lib/repositories/collectionFieldRepository';
-import type { Page, PageFolder, PageLayers, Component, CollectionItemWithValues, CollectionField, Layer, CollectionPaginationMeta, Translation, Locale } from '@/types';
+import type { Page, PageFolder, PageLayers, Component, ComponentVariable, CollectionItemWithValues, CollectionField, Layer, CollectionPaginationMeta, Translation, Locale } from '@/types';
 import { getCollectionVariable, resolveFieldValue, evaluateVisibility } from '@/lib/layer-utils';
 import { isFieldVariable, isAssetVariable, createDynamicTextVariable, createDynamicRichTextVariable, createAssetVariable, getDynamicTextContent, getVariableStringValue, getAssetId, resolveDesignStyles } from '@/lib/variable-utils';
-import { generateImageSrcset, getImageSizes, getOptimizedImageUrl, getAssetProxyUrl, DEFAULT_ASSETS } from '@/lib/asset-utils';
+import { generateImageSrcset, getImageSizes, getOptimizedImageUrl, getAssetProxyUrl, DEFAULT_ASSETS, collectLayerAssetIds } from '@/lib/asset-utils';
 import { resolveComponents, applyComponentOverrides } from '@/lib/resolve-components';
 import { extractInlineNodesFromRichText, isTiptapDoc, hasBlockElementsWithResolver } from '@/lib/tiptap-utils';
 import { DEFAULT_TEXT_STYLES } from '@/lib/text-format-utils';
@@ -319,7 +319,7 @@ export async function fetchPageByPath(
         }
 
         // Resolve all AssetVariables to URLs server-side (prevents client-side API calls)
-        const resolved = await resolveAllAssets(processedLayers, isPublished);
+        const resolved = await resolveAllAssets(processedLayers, isPublished, components);
         processedLayers = resolved.layers;
 
         return {
@@ -465,7 +465,7 @@ export async function fetchPageByPath(
             }
 
             // Resolve all AssetVariables to URLs server-side (prevents client-side API calls)
-            const resolved = await resolveAllAssets(resolvedLayers, isPublished);
+            const resolved = await resolveAllAssets(resolvedLayers, isPublished, components);
             resolvedLayers = resolved.layers;
 
             return {
@@ -521,7 +521,7 @@ export async function fetchPageByPath(
     }
 
     // Resolve all AssetVariables to URLs server-side (prevents client-side API calls)
-    const resolved = await resolveAllAssets(resolvedLayers, isPublished);
+    const resolved = await resolveAllAssets(resolvedLayers, isPublished, components);
     resolvedLayers = resolved.layers;
 
     return {
@@ -606,7 +606,7 @@ export async function fetchErrorPage(
       : [];
 
     // Resolve all AssetVariables to URLs server-side (prevents client-side API calls)
-    const resolved = await resolveAllAssets(resolvedLayers, isPublished);
+    const resolved = await resolveAllAssets(resolvedLayers, isPublished, components);
     resolvedLayers = resolved.layers;
 
     return {
@@ -695,7 +695,7 @@ export async function fetchHomepage(
       : [];
 
     // Resolve all AssetVariables to URLs server-side (prevents client-side API calls)
-    const resolved = await resolveAllAssets(resolvedLayers, isPublished);
+    const resolved = await resolveAllAssets(resolvedLayers, isPublished, components);
     resolvedLayers = resolved.layers;
 
     return {
@@ -2288,62 +2288,17 @@ async function injectCollectionDataForHtml(
  * This ensures assets are resolved server-side before rendering
  * Should be called after all other layer processing (collections, components, etc.)
  * @param isPublished - Whether to fetch published (true) or draft (false) assets
+ * @param components - Available components, needed to resolve assets from rich-text embedded components
  */
-async function resolveAllAssets(layers: Layer[], isPublished: boolean = true): Promise<{ layers: Layer[]; assetMap: Record<string, { public_url: string | null }> }> {
+async function resolveAllAssets(
+  layers: Layer[],
+  isPublished: boolean = true,
+  components?: Component[],
+): Promise<{ layers: Layer[]; assetMap: Record<string, { public_url: string | null; content?: string | null }> }> {
   const { getAssetsByIds } = await import('@/lib/repositories/assetRepository');
 
   // Step 1: Collect all asset IDs from the layer tree
-  const collectAssetIds = (layer: Layer, assetIds: Set<string>): void => {
-    // Collect image asset IDs
-    const imageSrc = layer.variables?.image?.src;
-    if (imageSrc && isAssetVariable(imageSrc)) {
-      const assetId = getAssetId(imageSrc);
-      if (assetId) assetIds.add(assetId);
-    }
-
-    // Collect video asset IDs
-    const videoSrc = layer.variables?.video?.src;
-    if (videoSrc && isAssetVariable(videoSrc)) {
-      const assetId = getAssetId(videoSrc);
-      if (assetId) assetIds.add(assetId);
-    }
-
-    // Collect video poster asset IDs
-    const videoPoster = layer.variables?.video?.poster;
-    if (videoPoster && isAssetVariable(videoPoster)) {
-      const assetId = getAssetId(videoPoster);
-      if (assetId) assetIds.add(assetId);
-    }
-
-    // Collect audio asset IDs
-    const audioSrc = layer.variables?.audio?.src;
-    if (audioSrc && isAssetVariable(audioSrc)) {
-      const assetId = getAssetId(audioSrc);
-      if (assetId) assetIds.add(assetId);
-    }
-
-    // Collect icon asset IDs
-    const iconSrc = layer.variables?.icon?.src;
-    if (iconSrc && isAssetVariable(iconSrc)) {
-      const assetId = getAssetId(iconSrc);
-      if (assetId) assetIds.add(assetId);
-    }
-
-    // Collect background image asset IDs
-    const bgImageSrc = layer.variables?.backgroundImage?.src;
-    if (bgImageSrc && isAssetVariable(bgImageSrc)) {
-      const assetId = getAssetId(bgImageSrc);
-      if (assetId) assetIds.add(assetId);
-    }
-
-    // Recursively collect from children
-    if (layer.children) {
-      layer.children.forEach(child => collectAssetIds(child, assetIds));
-    }
-  };
-
-  const assetIds = new Set<string>();
-  layers.forEach(layer => collectAssetIds(layer, assetIds));
+  const assetIds = collectLayerAssetIds(layers, components || []);
 
   // Step 2: Fetch all assets in a single query
   const assetMap = await getAssetsByIds(Array.from(assetIds), isPublished);
@@ -2357,135 +2312,107 @@ async function resolveAllAssets(layers: Layer[], isPublished: boolean = true): P
   }
 
   // Step 3: Resolve layer URLs using the fetched asset map
-  const resolveLayer = (layer: Layer): Layer => {
-    const updates: Partial<Layer> = {};
-    const variableUpdates: Partial<Layer['variables']> = {};
+  return { layers: layers.map(l => resolveLayerAssets(l, assetMap)), assetMap };
+}
 
-    // Resolve AssetVariable in image src
-    const imageSrc = layer.variables?.image?.src;
-    if (imageSrc && isAssetVariable(imageSrc)) {
-      const assetId = getAssetId(imageSrc);
-      if (assetId) {
-        const asset = assetMap[assetId];
-        // Use public_url if available, otherwise convert inline content to data URL
-        let resolvedUrl = '';
-        if (asset?.public_url) {
-          resolvedUrl = asset.public_url;
-        } else if (asset?.content) {
-          // Convert inline SVG content to data URL
-          resolvedUrl = `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
-        }
-        variableUpdates.image = {
-          src: createDynamicTextVariable(resolvedUrl),
-          alt: layer.variables?.image?.alt || createDynamicTextVariable(''),
-        };
-      }
-    }
+/**
+ * Synchronously resolve AssetVariables on a layer tree using an already-fetched assetMap.
+ * Replaces AssetVariable refs with DynamicTextVariable containing the resolved URL.
+ * Used by resolveAllAssets (upfront) and the componentRenderer in layerToHtml (at render time).
+ */
+function resolveLayerAssets(
+  layer: Layer,
+  assetMap: Record<string, { public_url: string | null; content?: string | null }>,
+): Layer {
+  const variableUpdates: Partial<Layer['variables']> = {};
 
-    // Resolve AssetVariable in video src and poster
-    const videoSrc = layer.variables?.video?.src;
-    const videoPoster = layer.variables?.video?.poster;
-    const videoUpdates: { src?: any; poster?: any } = {};
-
-    if (videoSrc && isAssetVariable(videoSrc)) {
-      const assetId = getAssetId(videoSrc);
-      if (assetId) {
-        const asset = assetMap[assetId];
-        const resolvedUrl = asset?.public_url || '';
-        videoUpdates.src = createDynamicTextVariable(resolvedUrl);
-      }
-    }
-
-    if (videoPoster && isAssetVariable(videoPoster)) {
-      const assetId = getAssetId(videoPoster);
-      if (assetId) {
-        const asset = assetMap[assetId];
-        const resolvedUrl = asset?.public_url || '';
-        videoUpdates.poster = createDynamicTextVariable(resolvedUrl);
-      }
-    }
-
-    if (Object.keys(videoUpdates).length > 0) {
-      variableUpdates.video = {
-        ...layer.variables?.video,
-        ...videoUpdates,
-      };
-    }
-
-    // Resolve AssetVariable in audio src
-    const audioSrc = layer.variables?.audio?.src;
-    if (audioSrc && isAssetVariable(audioSrc)) {
-      const assetId = getAssetId(audioSrc);
-      if (assetId) {
-        const asset = assetMap[assetId];
-        const resolvedUrl = asset?.public_url || '';
-        variableUpdates.audio = {
-          src: createDynamicTextVariable(resolvedUrl),
-        };
-      }
-    }
-
-    // Resolve AssetVariable in background image src
-    const bgImageSrc = layer.variables?.backgroundImage?.src;
-    if (bgImageSrc && isAssetVariable(bgImageSrc)) {
-      const assetId = getAssetId(bgImageSrc);
+  const imageSrc = layer.variables?.image?.src;
+  if (imageSrc && isAssetVariable(imageSrc)) {
+    const assetId = getAssetId(imageSrc);
+    if (assetId) {
+      const asset = assetMap[assetId];
       let resolvedUrl = '';
-      if (assetId) {
-        const asset = assetMap[assetId];
-        if (asset?.public_url) {
-          resolvedUrl = asset.public_url;
-        } else if (asset?.content) {
-          resolvedUrl = `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
-        }
-      } else {
-        resolvedUrl = DEFAULT_ASSETS.IMAGE;
+      if (asset?.public_url) {
+        resolvedUrl = asset.public_url;
+      } else if (asset?.content) {
+        resolvedUrl = `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
       }
-      if (resolvedUrl) {
-        variableUpdates.backgroundImage = {
-          src: createDynamicTextVariable(resolvedUrl),
-        };
-      }
-    }
-
-    // Resolve AssetVariable in icon src (convert to StaticTextVariable with SVG content)
-    const iconSrc = layer.variables?.icon?.src;
-    if (iconSrc && isAssetVariable(iconSrc)) {
-      const assetId = getAssetId(iconSrc);
-      if (assetId) {
-        const asset = assetMap[assetId];
-        const svgContent = asset?.content || '';
-        variableUpdates.icon = {
-          src: {
-            type: 'static_text' as const,
-            data: {
-              content: svgContent,
-            },
-          },
-        };
-      }
-    }
-
-    // Apply all variable updates at once
-    if (Object.keys(variableUpdates).length > 0) {
-      updates.variables = {
-        ...layer.variables,
-        ...variableUpdates,
+      variableUpdates.image = {
+        src: createDynamicTextVariable(resolvedUrl),
+        alt: layer.variables?.image?.alt || createDynamicTextVariable(''),
       };
     }
+  }
 
-    // Recursively resolve children
-    if (layer.children) {
-      const resolvedChildren = layer.children.map(child => resolveLayer(child));
-      updates.children = resolvedChildren;
+  const videoSrc = layer.variables?.video?.src;
+  const videoPoster = layer.variables?.video?.poster;
+  const videoUpdates: { src?: any; poster?: any } = {};
+  if (videoSrc && isAssetVariable(videoSrc)) {
+    const assetId = getAssetId(videoSrc);
+    if (assetId) {
+      const asset = assetMap[assetId];
+      videoUpdates.src = createDynamicTextVariable(asset?.public_url || '');
     }
+  }
+  if (videoPoster && isAssetVariable(videoPoster)) {
+    const assetId = getAssetId(videoPoster);
+    if (assetId) {
+      const asset = assetMap[assetId];
+      videoUpdates.poster = createDynamicTextVariable(asset?.public_url || '');
+    }
+  }
+  if (Object.keys(videoUpdates).length > 0) {
+    variableUpdates.video = { ...layer.variables?.video, ...videoUpdates };
+  }
 
-    return {
-      ...layer,
-      ...updates,
-    };
-  };
+  const audioSrc = layer.variables?.audio?.src;
+  if (audioSrc && isAssetVariable(audioSrc)) {
+    const assetId = getAssetId(audioSrc);
+    if (assetId) {
+      const asset = assetMap[assetId];
+      variableUpdates.audio = { src: createDynamicTextVariable(asset?.public_url || '') };
+    }
+  }
 
-  return { layers: layers.map(resolveLayer), assetMap };
+  const bgImageSrc = layer.variables?.backgroundImage?.src;
+  if (bgImageSrc && isAssetVariable(bgImageSrc)) {
+    const assetId = getAssetId(bgImageSrc);
+    let resolvedUrl = '';
+    if (assetId) {
+      const asset = assetMap[assetId];
+      if (asset?.public_url) {
+        resolvedUrl = asset.public_url;
+      } else if (asset?.content) {
+        resolvedUrl = `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
+      }
+    } else {
+      resolvedUrl = DEFAULT_ASSETS.IMAGE;
+    }
+    if (resolvedUrl) {
+      variableUpdates.backgroundImage = { src: createDynamicTextVariable(resolvedUrl) };
+    }
+  }
+
+  const iconSrc = layer.variables?.icon?.src;
+  if (iconSrc && isAssetVariable(iconSrc)) {
+    const assetId = getAssetId(iconSrc);
+    if (assetId) {
+      const asset = assetMap[assetId];
+      variableUpdates.icon = {
+        src: { type: 'static_text' as const, data: { content: asset?.content || '' } },
+      };
+    }
+  }
+
+  const updates: Partial<Layer> = {};
+  if (Object.keys(variableUpdates).length > 0) {
+    updates.variables = { ...layer.variables, ...variableUpdates };
+  }
+  if (layer.children) {
+    updates.children = layer.children.map(child => resolveLayerAssets(child, assetMap));
+  }
+
+  return Object.keys(updates).length > 0 ? { ...layer, ...updates } : layer;
 }
 
 /**
@@ -2689,7 +2616,7 @@ function layerToHtml(
   anchorMap?: Record<string, string>,
   collectionItemData?: Record<string, string>,
   pageCollectionItemData?: Record<string, string>,
-  assetMap?: Record<string, { public_url: string | null }>,
+  assetMap?: Record<string, { public_url: string | null; content?: string | null }>,
   layerDataMap?: Record<string, Record<string, string>>,
   components?: Component[],
   ancestorComponentIds?: Set<string>,
@@ -3112,8 +3039,12 @@ function layerToHtml(
           if (!comp?.layers?.length) return '';
           const childAncestors = new Set(ancestorComponentIds);
           childAncestors.add(componentId);
-          const resolved = applyComponentOverrides(comp.layers, overrides, comp.variables);
-          return resolved
+          const withOverrides = applyComponentOverrides(comp.layers, overrides, comp.variables);
+          const resolved = resolveComponents(withOverrides, components, comp.variables, overrides);
+          const withAssets = assetMap
+            ? resolved.map(l => resolveLayerAssets(l, assetMap))
+            : resolved;
+          return withAssets
             .map(l => layerToHtml(l, effectiveCollectionItemId, pages, folders, collectionItemSlugs, locale, translations, anchorMap, effectiveCollectionItemData, pageCollectionItemData, assetMap, effectiveLayerDataMap, components, childAncestors))
             .join('');
         }

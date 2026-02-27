@@ -7,8 +7,11 @@
  */
 
 import React, { useCallback } from 'react';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import Icon from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
+import ComponentVariableLabel, { VARIABLE_TYPE_ICONS } from './ComponentVariableLabel';
 import ImageSettings from './ImageSettings';
 import LinkSettings from './LinkSettings';
 import AudioSettings from './AudioSettings';
@@ -49,6 +52,18 @@ interface ComponentVariableOverridesProps {
   ) => React.ReactNode;
   /** Number of columns for the override layout (default: 1) */
   columns?: 1 | 2;
+  /** Whether we're in component edit mode (enables variable linking UI) */
+  isEditingComponent?: boolean;
+  /** The parent component's variables (for linking nested overrides to parent) */
+  parentVariables?: ComponentVariable[];
+  /** Called when linking a child override to a parent variable */
+  onLinkOverrideVariable?: (childVariableId: string, parentVariableId: string) => void;
+  /** Called when unlinking a child override from a parent variable */
+  onUnlinkOverrideVariable?: (childVariableId: string) => void;
+  /** Called to create a new parent variable from a child variable's current override */
+  onCreateOverrideVariable?: (childVariable: ComponentVariable) => void;
+  /** Called to open the variables dialog, optionally focused on a specific variable */
+  onManageVariables?: (variableId?: string) => void;
 }
 
 export default function ComponentVariableOverrides({
@@ -61,6 +76,12 @@ export default function ComponentVariableOverrides({
   isInsideCollectionLayer,
   renderTextOverride,
   columns = 1,
+  isEditingComponent,
+  parentVariables,
+  onLinkOverrideVariable,
+  onUnlinkOverrideVariable,
+  onCreateOverrideVariable,
+  onManageVariables,
 }: ComponentVariableOverridesProps) {
   const handleTextChange = useCallback(
     (variableId: string, tiptapContent: any) => {
@@ -101,6 +122,24 @@ export default function ComponentVariableOverrides({
     [componentOverrides, variables],
   );
 
+  /** Get the parent variables filtered to the same type as the child variable. */
+  const getMatchingParentVariables = useCallback(
+    (childType?: string) => {
+      if (!parentVariables?.length) return [];
+      const effectiveType = childType || 'text';
+      return parentVariables.filter(v => (v.type || 'text') === effectiveType);
+    },
+    [parentVariables],
+  );
+
+  /** Resolve the parent variable for a link, returning undefined if stale or not in edit mode. */
+  const getLinkedParentVar = (variableId: string) => {
+    if (!isEditingComponent) return undefined;
+    const linkedId = componentOverrides?.variableLinks?.[variableId];
+    if (!linkedId) return undefined;
+    return parentVariables?.find(v => v.id === linkedId);
+  };
+
   if (variables.length === 0) return null;
 
   const isTwoCol = columns === 2;
@@ -123,12 +162,82 @@ export default function ComponentVariableOverrides({
     );
   };
 
-  const renderItem = (variable: ComponentVariable) => {
-    const label = (
-      <Label variant="muted" className="truncate pt-2">
-        {variable.name}
-      </Label>
+  const renderLabel = (variable: ComponentVariable) => {
+    if (!isEditingComponent) {
+      return (
+        <Label variant="muted" className="truncate pt-2">
+          {variable.name}
+        </Label>
+      );
+    }
+
+    const linkedParentVar = getLinkedParentVar(variable.id);
+
+    return (
+      <div className="flex items-start gap-1 py-1">
+        <ComponentVariableLabel
+          label={variable.name}
+          isEditingComponent
+          variables={getMatchingParentVariables(variable.type)}
+          linkedVariableId={linkedParentVar?.id}
+          onLinkVariable={(parentVarId) => onLinkOverrideVariable?.(variable.id, parentVarId)}
+          onManageVariables={() => onManageVariables?.(linkedParentVar?.id)}
+          onCreateVariable={onCreateOverrideVariable
+            ? () => onCreateOverrideVariable(variable)
+            : undefined}
+        />
+      </div>
     );
+  };
+
+  const renderLinkedBadge = (variable: ComponentVariable) => {
+    const parentVar = getLinkedParentVar(variable.id);
+    if (!parentVar) return null;
+
+    return (
+      <Button
+        asChild
+        variant="purple"
+        className="justify-between! w-full"
+        onClick={() => onManageVariables?.(parentVar.id)}
+      >
+        <div>
+          <span className="flex items-center gap-1.5">
+            <Icon
+              name={VARIABLE_TYPE_ICONS[parentVar.type || 'text']}
+              className="size-3 opacity-60"
+            />
+            {parentVar.name}
+          </span>
+          <Button
+            className="size-4! p-0!"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUnlinkOverrideVariable?.(variable.id);
+            }}
+          >
+            <Icon name="x" className="size-2" />
+          </Button>
+        </div>
+      </Button>
+    );
+  };
+
+  const renderItem = (variable: ComponentVariable) => {
+    const label = renderLabel(variable);
+    const isLinked = !!getLinkedParentVar(variable.id);
+
+    if (isLinked) {
+      return (
+        <div key={variable.id} className="grid grid-cols-3 gap-2 items-start">
+          {label}
+          <div className="col-span-2">
+            {renderLinkedBadge(variable)}
+          </div>
+        </div>
+      );
+    }
 
     switch (variable.type) {
       case 'image':

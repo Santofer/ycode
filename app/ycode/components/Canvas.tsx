@@ -230,8 +230,8 @@ export default function Canvas({
 
   // Resolve component instances in layers
   const { layers: resolvedLayers, componentMap } = useMemo(() => {
-    return serializeLayers(layers, components);
-  }, [layers, components]);
+    return serializeLayers(layers, components, editingComponentVariables);
+  }, [layers, components, editingComponentVariables]);
 
   // Collect layer IDs that should be hidden on canvas (display: hidden with on-load)
   const editorHiddenLayerIds = useMemo(() => {

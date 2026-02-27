@@ -41,6 +41,7 @@ import InputSettings from './InputSettings';
 import SelectOptionsSettings from './SelectOptionsSettings';
 import LabelSettings from './LabelSettings';
 import LinkSettings, { type LinkSettingsValue } from './LinkSettings';
+import ComponentInstanceSidebar from './ComponentInstanceSidebar';
 import ComponentVariableOverrides from './ComponentVariableOverrides';
 import ExpandableRichTextEditor from './ExpandableRichTextEditor';
 import ComponentVariableLabel, { VARIABLE_TYPE_ICONS } from './ComponentVariableLabel';
@@ -72,7 +73,6 @@ import { classesToDesign, mergeDesign, removeConflictsForClass, getRemovedProper
 import { cn } from '@/lib/utils';
 import { sanitizeHtmlId } from '@/lib/html-utils';
 import { isFieldVariable, getCollectionVariable, findParentCollectionLayer, isTextEditable, findLayerWithParent, resetBindingsOnCollectionSourceChange } from '@/lib/layer-utils';
-import { detachSpecificLayerFromComponent } from '@/lib/component-utils';
 import { convertContentToValue, parseValueToContent } from '@/lib/cms-variables-utils';
 import { createTextComponentVariableValue } from '@/lib/variable-utils';
 import { getRichTextValue } from '@/lib/tiptap-utils';
@@ -80,7 +80,7 @@ import { DEFAULT_TEXT_STYLES, getTextStyle } from '@/lib/text-format-utils';
 import { buildFieldGroupsForLayer, getFieldIcon, isMultipleAssetField, MULTI_ASSET_COLLECTION_ID } from '@/lib/collection-field-utils';
 
 // 7. Types
-import type { Layer, FieldVariable, CollectionField, CollectionVariable } from '@/types';
+import type { Layer, FieldVariable, CollectionField, CollectionVariable, ComponentVariable } from '@/types';
 import { Empty, EmptyDescription, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import {
   DropdownMenu,
@@ -154,7 +154,6 @@ const RightSidebar = React.memo(function RightSidebar({
   const [fieldBindingOpen, setFieldBindingOpen] = useState(true);
   const [contentOpen, setContentOpen] = useState(true);
   const [localeLabelOpen, setLocaleLabelOpen] = useState(true);
-  const [variablesOpen, setVariablesOpen] = useState(true);
   const [variablesDialogOpen, setVariablesDialogOpen] = useState(false);
   const [variablesDialogInitialId, setVariablesDialogInitialId] = useState<string | null>(null);
 
@@ -193,7 +192,6 @@ const RightSidebar = React.memo(function RightSidebar({
 
   const getComponentById = useComponentsStore((state) => state.getComponentById);
   const componentDrafts = useComponentsStore((state) => state.componentDrafts);
-  const updateComponentDraft = useComponentsStore((state) => state.updateComponentDraft);
   const addTextVariable = useComponentsStore((state) => state.addTextVariable);
   const updateTextVariable = useComponentsStore((state) => state.updateTextVariable);
 
@@ -1580,216 +1578,20 @@ const RightSidebar = React.memo(function RightSidebar({
   const isComponentInstance = !!selectedLayer.componentId;
   const component = isComponentInstance ? getComponentById(selectedLayer.componentId!) : null;
 
-  // If it's a component instance, show a message with edit button instead of design properties
-  // This works both when editing a page OR when editing a component (nested component instances)
+  // If it's a component instance, show component sidebar instead of design properties
   if (isComponentInstance && component) {
-    const handleEditMasterComponent = async () => {
-      const { loadComponentDraft, getComponentById } = useComponentsStore.getState();
-      const { setSelectedLayerId: setLayerId, pushComponentNavigation } = useEditorStore.getState();
-      const { pages } = usePagesStore.getState();
-
-      // Clear selection FIRST to release lock on current page's channel
-      // before switching to component's channel
-      setLayerId(null);
-
-      // Push current context to navigation stack before entering component edit mode
-      if (editingComponentId) {
-        // We're currently editing a component, push it to stack
-        const currentComponent = getComponentById(editingComponentId);
-        if (currentComponent) {
-          pushComponentNavigation({
-            type: 'component',
-            id: editingComponentId,
-            name: currentComponent.name,
-            layerId: selectedLayerId,
-          });
-        }
-      } else if (currentPageId) {
-        // We're on a page, push it to stack
-        const currentPage = pages.find((p) => p.id === currentPageId);
-        if (currentPage) {
-          pushComponentNavigation({
-            type: 'page',
-            id: currentPageId,
-            name: currentPage.name,
-            layerId: selectedLayerId,
-          });
-        }
-      }
-
-      // Load the component's layers into draft (async to ensure proper cache sync)
-      await loadComponentDraft(component.id);
-
-      // Open component (updates state + URL, changes lock channel)
-      openComponent(component.id, currentPageId, undefined, selectedLayerId);
-
-      // Select the first layer of the component (now on component channel)
-      if (component.layers && component.layers.length > 0) {
-        setLayerId(component.layers[0].id);
-      }
-    };
-
-    const allVariables = component.variables || [];
-    const overrides = selectedLayer.componentOverrides;
-    const hasOverrides = ['text', 'image', 'link', 'audio', 'video', 'icon']
-      .some(cat => Object.keys(overrides?.[cat as keyof typeof overrides] || {}).length > 0);
-
-    const handleOverridesChange = (newOverrides: Layer['componentOverrides']) => {
-      onLayerUpdate(selectedLayerId!, { componentOverrides: newOverrides });
-    };
-
-    // Handle detaching from component (converts instance to regular layers)
-    const handleDetachFromComponent = () => {
-      if (!selectedLayer.componentId) return;
-
-      // Use the shared utility function for detaching
-      const newLayers = detachSpecificLayerFromComponent(allLayers, selectedLayerId!, component || undefined);
-
-      if (editingComponentId) {
-        // We're editing a component, update component draft
-        updateComponentDraft(editingComponentId, newLayers);
-      } else if (currentPageId) {
-        // We're on a page, update page draft
-        setDraftLayers(currentPageId, newLayers);
-      }
-
-      // Clear selection after detaching
-      useEditorStore.getState().setSelectedLayerId(null);
-    };
-
-    const handleResetAllOverrides = () => {
-      if (!selectedLayerId) return;
-      onLayerUpdate(selectedLayerId, {
-        componentOverrides: {
-          ...overrides,
-          text: {},
-          image: {},
-          link: {},
-          audio: {},
-          video: {},
-          icon: {},
-        },
-      });
-    };
-
     return (
-      <div className="w-64 shrink-0 bg-background border-l flex flex-col p-4 pb-0 h-full overflow-hidden">
-        <Tabs value="" className="flex flex-col min-h-0 gap-0!">
-          <div>
-            <TabsList className="w-full">
-              <TabsTrigger value="design" disabled>Design</TabsTrigger>
-              <TabsTrigger value="settings" disabled>Settings</TabsTrigger>
-              <TabsTrigger value="interactions" disabled>Interactions</TabsTrigger>
-            </TabsList>
-          </div>
-
-          <hr className="mt-4" />
-
-          <div className="flex flex-col divide-y divide-border overflow-y-auto no-scrollbar">
-            <SettingsPanel
-              title="Component instance"
-              isOpen={true}
-              onToggle={() => {}}
-              action={
-                <div className="flex items-center gap-1">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="xs" variant="ghost">
-                        <Icon name="more" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={handleResetAllOverrides}
-                        disabled={!hasOverrides}
-                      >
-                        <Icon name="undo" />
-                        Reset all overrides
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={handleDetachFromComponent}>
-                        <Icon name="detach" />
-                        Detach from component
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              }
-            >
-              <div className="bg-purple-500/20 text-purple-700 dark:text-purple-300 pl-2 pr-3 h-10 rounded-lg flex items-center gap-2">
-                <div className="p-1.5 bg-current/20 rounded-xl">
-                  <Icon name="component" className="size-3" />
-                </div>
-                <span>{component.name}</span>
-                {hasOverrides && (
-                    <span className="ml-auto text-[10px] italic text-orange-600 dark:text-orange-200">Overridden</span>
-                )}
-              </div>
-
-              <Button
-                size="sm" variant="secondary"
-                onClick={handleEditMasterComponent}
-              >
-                <Icon name="edit" />
-                Edit component
-              </Button>
-
-            </SettingsPanel>
-
-            <SettingsPanel
-              title="Variables"
-              isOpen={variablesOpen}
-              onToggle={() => setVariablesOpen(!variablesOpen)}
-            >
-              <ComponentVariableOverrides
-                variables={allVariables}
-                componentOverrides={overrides}
-                onOverridesChange={handleOverridesChange}
-                fieldGroups={fieldGroups}
-                allFields={fields}
-                collections={collections}
-                isInsideCollectionLayer={!!parentCollectionLayer}
-                renderTextOverride={(variable, value, onChange) => (
-                  <ExpandableRichTextEditor
-                    sheetDescription={`${component.name} override — ${variable.name}`}
-                    value={value}
-                    onChange={onChange}
-                    placeholder={variable.placeholder || 'Enter text...'}
-                    fieldGroups={fieldGroups}
-                    allFields={fields}
-                    collections={collections}
-                  />
-                )}
-              />
-
-              {allVariables.length === 0 && (
-                <div className="flex-1 flex items-center justify-center">
-                  <Empty>
-                    <EmptyMedia variant="icon">
-                      <Icon name="component" className="size-3.5" />
-                    </EmptyMedia>
-                    <EmptyTitle>No variables set</EmptyTitle>
-                    <EmptyDescription>
-                      Enter component editing mode to add variables.
-                    </EmptyDescription>
-                    <div>
-                      <Button
-                        onClick={handleEditMasterComponent}
-                        variant="secondary"
-                        size="sm"
-                      >
-                        Edit component
-                      </Button>
-                    </div>
-                  </Empty>
-                </div>
-              )}
-
-            </SettingsPanel>
-
-          </div>
-
-        </Tabs>
-      </div>
+      <ComponentInstanceSidebar
+        selectedLayerId={selectedLayerId!}
+        selectedLayer={selectedLayer}
+        component={component}
+        onLayerUpdate={onLayerUpdate}
+        allLayers={allLayers}
+        fieldGroups={fieldGroups}
+        fields={fields}
+        collections={collections}
+        isInsideCollectionLayer={!!parentCollectionLayer}
+      />
     );
   }
 

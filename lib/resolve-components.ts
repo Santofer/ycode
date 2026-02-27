@@ -4,7 +4,7 @@
  * Applies component variable overrides during resolution
  */
 
-import type { Layer, Component, ComponentVariable } from '@/types';
+import type { Layer, Component, ComponentVariable, ComponentVariableValue } from '@/types';
 
 /**
  * Transform layer IDs to be instance-specific to ensure unique IDs per component instance.
@@ -16,7 +16,7 @@ import type { Layer, Component, ComponentVariable } from '@/types';
 export function transformLayerIdsForInstance(layers: Layer[], instanceLayerId: string): Layer[] {
   // Build ID map: original ID -> instance-specific ID
   const idMap = new Map<string, string>();
-  
+
   // First pass: collect all layer IDs and generate new ones
   const collectIds = (layerList: Layer[]) => {
     for (const layer of layerList) {
@@ -28,16 +28,16 @@ export function transformLayerIdsForInstance(layers: Layer[], instanceLayerId: s
     }
   };
   collectIds(layers);
-  
+
   // Second pass: transform layers with new IDs and remapped interactions
   const transformLayer = (layer: Layer): Layer => {
     const newId = idMap.get(layer.id) || layer.id;
-    
+
     const transformedLayer: Layer = {
       ...layer,
       id: newId,
     };
-    
+
     // Remap interaction IDs and tween layer_id references
     // Interaction IDs must be unique per instance to prevent timeline caching issues
     if (layer.interactions && layer.interactions.length > 0) {
@@ -50,16 +50,85 @@ export function transformLayerIdsForInstance(layers: Layer[], instanceLayerId: s
         })),
       }));
     }
-    
+
     // Recursively transform children
     if (layer.children) {
       transformedLayer.children = layer.children.map(transformLayer);
     }
-    
+
     return transformedLayer;
   };
-  
+
   return layers.map(transformLayer);
+}
+
+type OverrideCategory = Exclude<keyof NonNullable<Layer['componentOverrides']>, 'variableLinks'>;
+
+const OVERRIDE_CATEGORIES: OverrideCategory[] = [
+  'text',
+  'image',
+  'link',
+  'audio',
+  'video',
+  'icon',
+];
+
+function findOverrideByVariableId(
+  overrides: Layer['componentOverrides'] | undefined,
+  variableId: string,
+): { category: OverrideCategory; value: ComponentVariableValue } | undefined {
+  if (!overrides) return undefined;
+
+  for (const category of OVERRIDE_CATEGORIES) {
+    const categoryOverrides = overrides[category];
+    if (categoryOverrides?.[variableId] !== undefined) {
+      return { category, value: categoryOverrides[variableId] };
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Resolve variableLinks on a component instance's overrides using the parent context.
+ * Returns new overrides with linked values resolved from the parent's overrides/defaults.
+ */
+export function resolveVariableLinks(
+  instanceOverrides: Layer['componentOverrides'] | undefined,
+  parentOverrides: Layer['componentOverrides'] | undefined,
+  parentVariables: ComponentVariable[] | undefined,
+): Layer['componentOverrides'] | undefined {
+  const links = instanceOverrides?.variableLinks;
+  if (!links || Object.keys(links).length === 0) return instanceOverrides;
+
+  const resolved = { ...instanceOverrides };
+
+  for (const [childVarId, parentVarId] of Object.entries(links)) {
+    const parentVar = parentVariables?.find(v => v.id === parentVarId);
+    let resolvedCategory: OverrideCategory | undefined;
+    let resolvedValue: ComponentVariableValue | undefined;
+
+    if (parentVar) {
+      const category = (parentVar.type || 'text') as OverrideCategory;
+      resolvedCategory = category;
+      resolvedValue = parentOverrides?.[category]?.[parentVarId] ?? parentVar.default_value;
+    } else {
+      const overrideMatch = findOverrideByVariableId(parentOverrides, parentVarId);
+      if (overrideMatch) {
+        resolvedCategory = overrideMatch.category;
+        resolvedValue = overrideMatch.value;
+      }
+    }
+
+    if (resolvedCategory && resolvedValue !== undefined) {
+      resolved[resolvedCategory] = {
+        ...(resolved[resolvedCategory] ?? {}),
+        [childVarId]: resolvedValue,
+      };
+    }
+  }
+
+  return resolved;
 }
 
 /**
@@ -81,7 +150,7 @@ export function applyComponentOverrides(
       const overrideValue = overrides?.text?.[linkedTextVariableId];
       const variableDef = componentVariables?.find(v => v.id === linkedTextVariableId);
       const valueToApply = overrideValue ?? variableDef?.default_value;
-      
+
       // Only apply if it's a text variable (has 'type' property, not ImageSettingsValue)
       if (valueToApply && 'type' in valueToApply) {
         // Apply the value to this layer's text variable
@@ -102,7 +171,7 @@ export function applyComponentOverrides(
       const overrideValue = overrides?.image?.[linkedImageVariableId];
       const variableDef = componentVariables?.find(v => v.id === linkedImageVariableId);
       const imageValue = (overrideValue ?? variableDef?.default_value) as any;
-      
+
       if (imageValue) {
         // Apply the value to this layer's image variable
         updatedLayer = {
@@ -231,6 +300,18 @@ export function applyComponentOverrides(
       }
     }
 
+    // Resolve variableLinks on nested component overrides
+    if (updatedLayer.componentOverrides?.variableLinks) {
+      updatedLayer = {
+        ...updatedLayer,
+        componentOverrides: resolveVariableLinks(
+          updatedLayer.componentOverrides,
+          overrides,
+          componentVariables,
+        ),
+      };
+    }
+
     // Recursively process children
     if (updatedLayer.children) {
       updatedLayer.children = applyComponentOverrides(updatedLayer.children, overrides, componentVariables);
@@ -257,10 +338,23 @@ function tagLayersWithComponentId(layers: Layer[], componentId: string): Layer[]
  * Recursively resolve component instances in a layer tree
  * @param layers - The layer tree to process
  * @param components - Array of available components
+ * @param parentComponentVariables - Variables of the parent component (for variableLinks resolution)
+ * @param parentOverrides - Overrides from the parent component instance (for variableLinks resolution)
  * @returns Layer tree with components resolved
  */
-export function resolveComponents(layers: Layer[], components: Component[]): Layer[] {
-  return layers.map(layer => {
+export function resolveComponents(
+  layers: Layer[],
+  components: Component[],
+  parentComponentVariables?: ComponentVariable[],
+  parentOverrides?: Layer['componentOverrides'],
+): Layer[] {
+  // Resolve variableLinks at this level first so nested instances
+  // get the correct overrides before their children are resolved
+  const effectiveLayers = parentComponentVariables?.length
+    ? applyComponentOverrides(layers, parentOverrides, parentComponentVariables)
+    : layers;
+
+  return effectiveLayers.map(layer => {
     // If this layer is a component instance, populate its children from the component
     if (layer.componentId) {
       const component = components.find(c => c.id === layer.componentId);
@@ -269,9 +363,10 @@ export function resolveComponents(layers: Layer[], components: Component[]): Lay
         // The component's first layer is the actual content (Section, etc.)
         const componentContent = component.layers[0];
 
-        // Recursively resolve nested components
+        // Recursively resolve nested components, passing current component's
+        // variables and this instance's overrides so nested variableLinks resolve correctly
         const nestedResolved = componentContent.children
-          ? resolveComponents(componentContent.children, components)
+          ? resolveComponents(componentContent.children, components, component.variables, layer.componentOverrides)
           : [];
 
         // Apply component variable overrides (or defaults) before tagging
@@ -319,7 +414,7 @@ export function resolveComponents(layers: Layer[], components: Component[]): Lay
     if (layer.children?.length) {
       return {
         ...layer,
-        children: resolveComponents(layer.children, components),
+        children: resolveComponents(layer.children, components, parentComponentVariables, parentOverrides),
       };
     }
 

@@ -6,6 +6,7 @@ import { resolveComponents } from '@/lib/resolve-components';
 import { resolveCustomCodePlaceholders } from '@/lib/resolve-cms-variables';
 import { generateInitialAnimationCSS, type HiddenLayerInfo } from '@/lib/animation-utils';
 import { buildCustomFontsCss, buildFontClassesCss, getGoogleFontLinks } from '@/lib/font-utils';
+import { collectLayerAssetIds } from '@/lib/asset-utils';
 import { getAllPages } from '@/lib/repositories/pageRepository';
 import { getAllPageFolders } from '@/lib/repositories/pageFolderRepository';
 import { getItemWithValues } from '@/lib/repositories/collectionItemRepository';
@@ -216,99 +217,7 @@ export default async function PageRenderer({
   }
 
   // Pre-resolve all asset URLs for SSR (images, videos, audio, icons, and field values)
-  // This prevents client-side fetching delays and ensures links/media work immediately
-  const collectAssetIds = (layers: Layer[]): Set<string> => {
-    const assetIds = new Set<string>();
-
-    const isAssetVar = (v: any): v is { type: 'asset'; data: { asset_id: string } } =>
-      v && v.type === 'asset' && v.data?.asset_id;
-
-    const isUuid = (v: string) =>
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-
-    // Scan rich text content for asset links in richTextLink marks
-    const scanRichTextForAssets = (content: any) => {
-      if (!content || typeof content !== 'object') return;
-
-      // Check marks for richTextLink with asset
-      if (Array.isArray(content.marks)) {
-        for (const mark of content.marks) {
-          if (mark.type === 'richTextLink' && mark.attrs?.asset?.id) {
-            assetIds.add(mark.attrs.asset.id);
-          }
-        }
-      }
-
-      // Recurse into content arrays
-      if (Array.isArray(content.content)) {
-        for (const child of content.content) {
-          scanRichTextForAssets(child);
-        }
-      }
-      if (Array.isArray(content)) {
-        for (const child of content) {
-          scanRichTextForAssets(child);
-        }
-      }
-    };
-
-    const scan = (layer: Layer) => {
-      // Image source
-      if (isAssetVar(layer.variables?.image?.src)) {
-        assetIds.add(layer.variables.image.src.data.asset_id);
-      }
-      // Video source and poster
-      if (isAssetVar(layer.variables?.video?.src)) {
-        assetIds.add(layer.variables.video.src.data.asset_id);
-      }
-      if (isAssetVar(layer.variables?.video?.poster)) {
-        assetIds.add(layer.variables.video.poster.data.asset_id);
-      }
-      // Audio source
-      if (isAssetVar(layer.variables?.audio?.src)) {
-        assetIds.add(layer.variables.audio.src.data.asset_id);
-      }
-      // Icon source
-      if (isAssetVar(layer.variables?.icon?.src)) {
-        assetIds.add(layer.variables.icon.src.data.asset_id);
-      }
-      // Background image source
-      if (isAssetVar(layer.variables?.backgroundImage?.src)) {
-        assetIds.add(layer.variables.backgroundImage.src.data.asset_id);
-      }
-
-      // Direct asset link (type = 'asset')
-      const linkAssetId = layer.variables?.link?.asset?.id;
-      if (linkAssetId) {
-        assetIds.add(linkAssetId);
-      }
-
-      // Rich text links with asset type
-      const textVar = layer.variables?.text;
-      if (textVar && textVar.type === 'dynamic_rich_text' && (textVar as any).data?.content) {
-        scanRichTextForAssets((textVar as any).data.content);
-      }
-
-      // Collection item values on resolved collection layers
-      if (layer._collectionItemValues) {
-        for (const value of Object.values(layer._collectionItemValues)) {
-          if (typeof value === 'string' && isUuid(value)) {
-            assetIds.add(value);
-          }
-        }
-      }
-
-      if (layer.children) {
-        layer.children.forEach(scan);
-      }
-    };
-
-    layers.forEach(scan);
-    return assetIds;
-  };
-
-  // Collect asset IDs from layers
-  const layerAssetIds = collectAssetIds(resolvedLayers);
+  const layerAssetIds = collectLayerAssetIds(resolvedLayers, components);
 
   // Also collect from page collection item values (for dynamic pages)
   if (collectionItem) {

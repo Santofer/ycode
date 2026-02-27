@@ -3,8 +3,8 @@ import type { TextStyle, DynamicRichTextVariable, LinkSettings, Component } from
 import { cn } from '@/lib/utils';
 import { formatFieldValue, resolveFieldFromSources } from '@/lib/cms-variables-utils';
 import { generateLinkHref, type LinkResolutionContext } from '@/lib/link-utils';
-import { extractInlineNodesFromRichText, isTiptapDoc, contentHasBlockElements, hasBlockElementsWithResolver } from '@/lib/tiptap-utils';
-import { applyComponentOverrides } from '@/lib/resolve-components';
+import { extractInlineNodesFromRichText, contentHasBlockElements, hasBlockElementsWithResolver } from '@/lib/tiptap-utils';
+import { applyComponentOverrides, resolveComponents } from '@/lib/resolve-components';
 
 /**
  * Context for resolving rich text links - re-exports LinkResolutionContext for backwards compatibility
@@ -707,11 +707,16 @@ function renderRichTextComponentBlock(
     return React.createElement('span', { key, 'data-component-id': componentId }, `[${component.name}]`);
   }
 
-  const resolvedLayers = applyComponentOverrides(
+  const withOverrides = applyComponentOverrides(
     component.layers,
     overrides,
     component.variables,
   );
+
+  // Resolve nested component instances so they render in non-edit mode
+  const resolvedLayers = components?.length
+    ? resolveComponents(withOverrides, components, component.variables, overrides)
+    : withOverrides;
 
   return renderComponentBlock(component, resolvedLayers, overrides, key);
 }
