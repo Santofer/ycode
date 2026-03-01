@@ -62,9 +62,12 @@ export function parseConnectionUrl(connectionUrl: string): {
     const dbPassword = decodeURIComponent(url.password);
     const projectId = extractProjectId(connectionUrl);
 
+    // For self-hosted Supabase, use NEXT_PUBLIC_SUPABASE_URL instead of constructing from project ID
+    const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || `https://${projectId}.supabase.co`;
+
     return {
       projectId,
-      projectUrl: `https://${projectId}.supabase.co`,
+      projectUrl,
       dbPassword,
       dbHost,
       dbPort,
