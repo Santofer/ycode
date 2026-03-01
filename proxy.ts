@@ -33,7 +33,13 @@ function getSupabaseEnvConfig(): { url: string; anonKey: string } | null {
 
   if (!anonKey || !connectionUrl) return null;
 
-  // Extract project ID from connection URL
+  // For self-hosted Supabase, use NEXT_PUBLIC_SUPABASE_URL if available
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (supabaseUrl) {
+    return { url: supabaseUrl, anonKey };
+  }
+
+  // Fallback: extract project ID from connection URL for Supabase Cloud
   // e.g. "postgresql://postgres.abc123:..." → "abc123"
   const match = connectionUrl.match(/\/\/postgres\.([a-z0-9]+):/);
   if (!match) return null;
