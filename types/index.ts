@@ -41,6 +41,7 @@ export interface TypographyDesign {
   underlineOffset?: string;
   verticalAlign?: string;
   color?: string;
+  placeholderColor?: string;
 }
 
 export interface SpacingDesign {
@@ -152,6 +153,31 @@ export interface FormSettings {
   };
 }
 
+export type SliderAnimationEffect = 'Slide' | 'Fade' | 'Cube' | 'Flip' | 'Coverflow' | 'Cards';
+export type SliderLoopMode = 'none' | 'loop' | 'rewind';
+export type SliderPaginationType = 'bullets' | 'fraction';
+
+export interface SliderSettings {
+  navigation: boolean;
+  groupSlide: number;
+  slidesPerGroup: number;
+  loop: SliderLoopMode;
+  centered: boolean;
+  touchEvents: boolean;
+  slideToClicked: boolean;
+  mousewheel: boolean;
+
+  pagination: boolean;
+  paginationType: SliderPaginationType;
+  paginationClickable: boolean;
+  autoplay: boolean;
+  pauseOnHover: boolean;
+  delay: string; // Autoplay delay in seconds
+  animationEffect: SliderAnimationEffect;
+  easing: string;
+  duration: string; // Transition duration in seconds
+}
+
 export interface LayerSettings {
   id?: string; // Custom element ID
   tag?: string; // HTML tag override (e.g., 'h1', 'h2', etc.)
@@ -163,7 +189,18 @@ export interface LayerSettings {
   htmlEmbed?: {
     code?: string; // Custom HTML code to embed
   };
+  slider?: SliderSettings; // Slider-specific settings (only for slider layers)
   form?: FormSettings; // Form-specific settings (only for form layers)
+  filterOnChange?: boolean; // For filter layers: trigger filtering on every input change (debounced)
+  optionsSource?: {
+    collectionId: string;
+    defaultItemId?: string; // item ID to pre-select as default
+    sortFieldId?: string; // field ID to sort options by (undefined = manual/insertion order)
+    sortOrder?: 'asc' | 'desc'; // sort direction (defaults to 'asc')
+  };
+  selectOptionsMode?: 'list' | 'sort_by' | 'sort_order'; // Builder source mode for select options
+  sortByCollectionId?: string; // Collection to source sort-by field options from
+  sortByFieldIds?: string[]; // Which field IDs are enabled as sort-by options
 }
 
 // Layer Style Types
@@ -296,6 +333,7 @@ export interface Layer {
     audio?: Record<string, ComponentVariableValue>; // ComponentVariable.id → override value (audio)
     video?: Record<string, ComponentVariableValue>; // ComponentVariable.id → override value (video)
     icon?: Record<string, ComponentVariableValue>; // ComponentVariable.id → override value (icon)
+    variableLinks?: Record<string, string>; // childVariableId → parentVariableId (pass-through from nested component to parent)
   };
 
   // Layer variables (layer collection data & dynamic data for texts, assets, links)
@@ -320,6 +358,19 @@ export interface Layer {
   _paginationMeta?: CollectionPaginationMeta;
   // SSR-only property for dynamic inline styles from CMS color field bindings
   _dynamicStyles?: Record<string, string>;
+  // SSR-only property for filterable collection config (when collection has linked filter inputs)
+  _filterConfig?: {
+    collectionId: string;
+    collectionLayerId: string;
+    filters: ConditionalVisibility;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    sortByInputLayerId?: string;
+    sortOrderInputLayerId?: string;
+    limit?: number;
+    paginationMode?: 'pages' | 'load_more';
+    layerTemplate: Layer[];
+  };
 }
 
 export interface LayerVariables {
@@ -358,6 +409,7 @@ export interface LayerVariables {
     borderColor?: DesignColorVariable;
     divideColor?: DesignColorVariable;
     textDecorationColor?: DesignColorVariable;
+    placeholderColor?: DesignColorVariable;
   };
 }
 
@@ -467,6 +519,7 @@ export interface ComponentVariable {
   id: string;        // Unique variable ID
   name: string;      // Display name (e.g., "Button title")
   type?: 'text' | 'image' | 'link' | 'audio' | 'video' | 'icon'; // Variable type (defaults to 'text' for backwards compatibility)
+  placeholder?: string; // Placeholder text shown in text override inputs
   default_value?: ComponentVariableValue; // Default value
 }
 
@@ -732,7 +785,7 @@ export interface VercelConfig {
 }
 
 // Setup Wizard Types
-export type SetupStep = 'welcome' | 'supabase' | 'migrate' | 'admin' | 'complete';
+export type SetupStep = 'welcome' | 'supabase' | 'migrate' | 'admin' | 'template' | 'complete';
 
 export interface SetupState {
   currentStep: SetupStep;
@@ -1084,6 +1137,8 @@ export interface CollectionVariable {
   id: string; // Collection ID
   sort_by?: 'none' | 'manual' | 'random' | string; // 'none', 'manual', 'random', or field ID
   sort_order?: 'asc' | 'desc'; // Only used when sort_by is a field ID
+  sort_by_inputLayerId?: string; // Linked filter input controlling sort_by at runtime
+  sort_order_inputLayerId?: string; // Linked filter input controlling sort_order at runtime
   limit?: number; // Maximum number of items to show (deprecated when pagination enabled)
   offset?: number; // Number of items to skip (deprecated when pagination enabled)
   source_field_id?: string; // Field ID from parent item (reference or multi-asset field)
@@ -1141,6 +1196,9 @@ export interface VisibilityCondition {
   collectionLayerName?: string; // Display name for the layer
   compareOperator?: 'eq' | 'lt' | 'lte' | 'gt' | 'gte'; // For 'item_count' operator
   compareValue?: number; // For 'item_count' operator
+  // For linking filter value to an input layer inside a Filter
+  inputLayerId?: string;
+  inputLayerId2?: string; // For second bound (e.g. 'is_between')
 }
 
 export interface VisibilityConditionGroup {
@@ -1316,6 +1374,12 @@ export interface FormSummary {
 // Font Types
 export type FontType = 'google' | 'custom' | 'default';
 
+export interface FontAxis {
+  tag: string;
+  start: number;
+  end: number;
+}
+
 export interface Font {
   id: string;
   name: string; // Slug-friendly name (e.g., "open-sans")
@@ -1324,6 +1388,7 @@ export interface Font {
   variants: string[]; // Available variants (e.g., ["regular", "italic", "700"])
   weights: string[]; // Available weights (e.g., ["400", "700"])
   category: string; // Font category (e.g., "sans-serif", "serif")
+  axes?: FontAxis[] | null; // Variable font axes (e.g., opsz, wdth)
   kind?: string | null; // Font format for custom fonts (e.g., "woff2", "truetype")
   url?: string | null; // Public URL for custom font file
   storage_path?: string | null; // Storage path for custom font file
@@ -1342,6 +1407,7 @@ export interface CreateFontData {
   variants: string[];
   weights: string[];
   category: string;
+  axes?: FontAxis[] | null;
   kind?: string | null;
   url?: string | null;
   storage_path?: string | null;

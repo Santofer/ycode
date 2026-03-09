@@ -75,6 +75,8 @@ interface EditorActions {
   openCollectionItemSheet: (collectionId: string, itemId: string) => void;
   closeCollectionItemSheet: () => void;
   setHoveredLayerId: (id: string | null) => void;
+  renamingLayerId: string | null;
+  setRenamingLayerId: (id: string | null) => void;
   setPreviewMode: (enabled: boolean) => void;
   setActiveSidebarTab: (tab: EditorSidebarTab) => void;
   setLastDesignUrl: (url: string | null) => void;
@@ -92,6 +94,12 @@ interface EditorActions {
   startCanvasLayerDrag: (layerId: string, layerName: string, parentId: string | null, originalIndex: number, siblingIds: string[], startPosition: { x: number; y: number }) => void;
   updateCanvasSiblingDropTarget: (target: CanvasSiblingDropTarget | null) => void;
   endCanvasLayerDrag: () => void;
+  /** Open a RichTextEditorSheet for the given layer (triggered from iframe on double-click) */
+  openRichTextSheet: (layerId: string) => void;
+  closeRichTextSheet: () => void;
+  // Element picker actions
+  startElementPicker: (onSelect: (layerId: string) => void, validate?: (layerId: string) => boolean, originPosition?: { x: number; y: number }) => void;
+  stopElementPicker: () => void;
 }
 
 interface EditorStoreWithHistory extends EditorState {
@@ -138,6 +146,12 @@ interface EditorStoreWithHistory extends EditorState {
   dragElementSource: 'elements' | 'layouts' | 'components' | null;
   dragPosition: DragPosition | null;
   canvasDropTarget: CanvasDropTarget | null;
+  // Slider transition state (hides outlines during slide animation)
+  isSliderAnimating: boolean;
+  setSliderAnimating: (value: boolean) => void;
+  // Swiper-calculated snap page counts per slider (used for bullet replication)
+  sliderSnapCounts: Record<string, number>;
+  setSliderSnapCount: (sliderId: string, count: number) => void;
   // Canvas sibling reorder state
   isDraggingLayerOnCanvas: boolean;
   draggedLayerId: string | null;
@@ -147,6 +161,15 @@ interface EditorStoreWithHistory extends EditorState {
   siblingLayerIds: string[];
   canvasSiblingDropTarget: CanvasSiblingDropTarget | null;
   layerDragStartPosition: { x: number; y: number } | null;
+  /** Layer ID whose content should be opened in a RichTextEditorSheet (set from iframe on double-click) */
+  richTextSheetLayerId: string | null;
+  // Element picker state (for linking filter inputs to collection conditions)
+  elementPicker: {
+    active: boolean;
+    onSelect: ((layerId: string) => void) | null;
+    validate?: ((layerId: string) => boolean) | null;
+    originPosition?: { x: number; y: number } | null;
+  } | null;
   // Computed getters
   showTextStyleControls: () => boolean;
 }
@@ -179,6 +202,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   activeTextStyleKey: null,
   collectionItemSheet: null,
   hoveredLayerId: null,
+  renamingLayerId: null,
   isPreviewMode: false,
   activeSidebarTab: 'layers' as EditorSidebarTab,
   lastDesignUrl: null,
@@ -201,6 +225,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   dragElementSource: null,
   dragPosition: null,
   canvasDropTarget: null,
+  isSliderAnimating: false,
+  setSliderAnimating: (value) => set({ isSliderAnimating: value }),
+  sliderSnapCounts: {},
+  setSliderSnapCount: (sliderId, count) => set((state) => ({
+    sliderSnapCounts: { ...state.sliderSnapCounts, [sliderId]: count },
+  })),
   // Canvas sibling reorder initial state
   isDraggingLayerOnCanvas: false,
   draggedLayerId: null,
@@ -210,6 +240,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   siblingLayerIds: [],
   canvasSiblingDropTarget: null,
   layerDragStartPosition: null,
+  richTextSheetLayerId: null,
+  // Element picker initial state
+  elementPicker: null,
 
   // Computed getter: Returns true when text style controls should be shown
   // This happens when:
@@ -464,6 +497,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   }),
 
   setHoveredLayerId: (id) => set({ hoveredLayerId: id }),
+  setRenamingLayerId: (id) => set({ renamingLayerId: id }),
 
   setPreviewMode: (enabled) => set({ isPreviewMode: enabled }),
 
@@ -558,5 +592,22 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     siblingLayerIds: [],
     canvasSiblingDropTarget: null,
     layerDragStartPosition: null,
+  }),
+
+  openRichTextSheet: (layerId) => set({ richTextSheetLayerId: layerId }),
+  closeRichTextSheet: () => set({ richTextSheetLayerId: null }),
+
+  // Element picker actions
+  startElementPicker: (onSelect, validate, originPosition) => set({
+    elementPicker: {
+      active: true,
+      onSelect,
+      validate: validate ?? null,
+      originPosition: originPosition ?? null,
+    },
+  }),
+
+  stopElementPicker: () => set({
+    elementPicker: null,
   }),
 }));

@@ -8,7 +8,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Input } from '@/components/ui/input';
+import { InlineRenameInput } from '@/components/ui/inline-rename-input';
+import { useInlineRename } from '@/hooks/use-inline-rename';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -242,21 +243,19 @@ function SortableCollectionItem({
 
   if (isRenaming) {
     return (
-      <div className="pl-3 pr-1.5 h-8 rounded-lg flex gap-2 items-center bg-secondary/50">
+      <div
+        className={cn(
+          'pl-3 pr-1.5 h-8 rounded-lg flex gap-2 items-center',
+          isSelected ? 'bg-primary text-primary-foreground' : 'bg-secondary/50'
+        )}
+      >
         <Icon name="database" className="size-3 shrink-0" />
-        <Input
+        <InlineRenameInput
+          variant={isSelected ? 'rename-selected' : 'rename'}
           value={renameValue}
-          onChange={(e) => onRenameValueChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              onRenameSubmit();
-            } else if (e.key === 'Escape') {
-              onRenameCancel();
-            }
-          }}
-          onBlur={onRenameSubmit}
-          autoFocus
-          className="h-6 px-1 py-0 text-xs rounded-md -ml-1"
+          onChange={onRenameValueChange}
+          onSubmit={onRenameSubmit}
+          onCancel={onRenameCancel}
         />
       </div>
     );
@@ -379,6 +378,7 @@ const CMS = React.memo(function CMS() {
   const folders = usePagesStore((state) => state.folders);
   const timezone = useSettingsStore((state) => state.settingsByKey.timezone as string | null) ?? 'UTC';
   const refetchLayersForCollection = useCollectionLayerStore((state) => state.refetchLayersForCollection);
+  const invalidateLayerData = useCollectionLayerStore((state) => state.invalidateLayerData);
 
   const { urlState, navigateToCollection, navigateToCollectionItem, navigateToNewCollectionItem, navigateToCollections } = useEditorUrl();
 
@@ -400,9 +400,15 @@ const CMS = React.memo(function CMS() {
   // Cache for reference item display names: { collectionId: { itemId: displayName } }
   const [referenceItemsCache, setReferenceItemsCache] = useState<Record<string, Record<string, string>>>({});
 
-  // Collection sidebar state
-  const [renamingCollectionId, setRenamingCollectionId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  // Collection sidebar rename state
+  const collectionRename = useInlineRename({
+    onSubmit: async (id, name) => {
+      await updateCollection(id, { name });
+      if (liveCollectionUpdates) {
+        liveCollectionUpdates.broadcastCollectionUpdate(id, { name });
+      }
+    },
+  });
   const [hoveredCollectionId, setHoveredCollectionId] = useState<string | null>(null);
   const [collectionDropdownId, setCollectionDropdownId] = useState<string | null>(null);
   const [loadingSampleCollectionId, setLoadingSampleCollectionId] = useState<string | null>(null);
@@ -861,6 +867,7 @@ const CMS = React.memo(function CMS() {
         }
         // Reload current page to sync pagination and pull remaining items forward
         loadItems(selectedCollectionId, currentPage, pageSize, currentSortBy, currentSortOrder);
+        invalidateLayerData(selectedCollectionId);
       })
       .catch((error) => {
         console.error('Failed to delete item:', error);
@@ -955,7 +962,8 @@ const CMS = React.memo(function CMS() {
       await reorderItems(selectedCollectionId, updates);
       // Reset to page 1 after reordering to show the new order
       setCurrentPage(1);
-      // Refetch collection layers on the canvas to reflect new order
+      // Invalidate + refetch collection layers on the canvas to reflect new order
+      invalidateLayerData(selectedCollectionId);
       refetchLayersForCollection(selectedCollectionId);
     } catch (error) {
       console.error('Failed to reorder items:', error);
@@ -1077,6 +1085,7 @@ const CMS = React.memo(function CMS() {
 
         // Reload current page to sync pagination and pull remaining items forward
         loadItems(selectedCollectionId, currentPage, pageSize, currentSortBy, currentSortOrder);
+        invalidateLayerData(selectedCollectionId);
       })
       .catch((error) => {
         console.error('Failed to delete items:', error);
@@ -1250,7 +1259,6 @@ const CMS = React.memo(function CMS() {
 
   // Collection sidebar handlers
   const handleCreateCollection = () => {
-    // Defer state changes so the dropdown menu can finish its close animation
     requestAnimationFrame(async () => {
       const baseName = 'Collection';
       let collectionName = baseName;
@@ -1260,29 +1268,6 @@ const CMS = React.memo(function CMS() {
         collectionName = `${baseName} ${counter}`;
         counter++;
       }
-
-      const tempId = `temp-${Date.now()}`;
-      const optimisticCollection: Collection = {
-        id: tempId,
-        uuid: tempId,
-        name: collectionName,
-        sorting: null,
-        order: Number.MAX_SAFE_INTEGER,
-        is_published: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        deleted_at: null,
-        draft_items_count: 0,
-      };
-
-      useCollectionsStore.setState(state => ({
-        collections: [...state.collections, optimisticCollection],
-        items: { ...state.items, [tempId]: [] },
-        itemsTotalCount: { ...state.itemsTotalCount, [tempId]: 0 },
-      }));
-      navigateToCollection(tempId);
-      setRenamingCollectionId(tempId);
-      setRenameValue(collectionName);
 
       try {
         const newCollection = await createCollection({
@@ -1295,21 +1280,10 @@ const CMS = React.memo(function CMS() {
           liveCollectionUpdates.broadcastCollectionCreate(newCollection);
         }
 
-        useCollectionsStore.setState(state => ({
-          collections: state.collections.filter(c => c.id !== tempId),
-          items: Object.fromEntries(Object.entries(state.items).filter(([k]) => k !== tempId)),
-          itemsTotalCount: Object.fromEntries(Object.entries(state.itemsTotalCount).filter(([k]) => k !== tempId)),
-        }));
-
         navigateToCollection(newCollection.id);
-        setRenamingCollectionId(newCollection.id);
+        collectionRename.startRename(newCollection.id, newCollection.name);
       } catch (error) {
         console.error('Failed to create collection:', error);
-        useCollectionsStore.setState(state => ({
-          collections: state.collections.filter(c => c.id !== tempId),
-        }));
-        setRenamingCollectionId(null);
-        setRenameValue('');
         toast.error('Failed to create collection');
       }
     });
@@ -1366,35 +1340,7 @@ const CMS = React.memo(function CMS() {
   };
 
   const handleCollectionDoubleClick = (collection: { id: string; name: string }) => {
-    setRenamingCollectionId(collection.id);
-    setRenameValue(collection.name);
-  };
-
-  const handleRenameSubmit = async () => {
-    if (!renamingCollectionId || !renameValue.trim()) {
-      setRenamingCollectionId(null);
-      setRenameValue('');
-      return;
-    }
-
-    try {
-      const updatedName = renameValue.trim();
-      await updateCollection(renamingCollectionId, { name: updatedName });
-
-      if (liveCollectionUpdates) {
-        liveCollectionUpdates.broadcastCollectionUpdate(renamingCollectionId, { name: updatedName });
-      }
-
-      setRenamingCollectionId(null);
-      setRenameValue('');
-    } catch (error) {
-      console.error('Failed to rename collection:', error);
-    }
-  };
-
-  const handleRenameCancel = () => {
-    setRenamingCollectionId(null);
-    setRenameValue('');
+    collectionRename.startRename(collection.id, collection.name);
   };
 
   const handleCollectionDelete = async (collectionId: string) => {
@@ -2037,19 +1983,19 @@ const CMS = React.memo(function CMS() {
                   isSelected={selectedCollectionId === collection.id}
                   isHovered={hoveredCollectionId === collection.id}
                   openDropdownId={collectionDropdownId}
-                  isRenaming={renamingCollectionId === collection.id}
-                  renameValue={renameValue}
+                  isRenaming={collectionRename.renamingId === collection.id}
+                  renameValue={collectionRename.renameValue}
                   itemCount={itemsTotalCount[collection.id]}
                   isItemCountLoading={loadingSampleCollectionId === collection.id}
-                  onRenameValueChange={setRenameValue}
+                  onRenameValueChange={collectionRename.setRenameValue}
                   onSelect={() => handleCollectionSelect(collection.id)}
                   onDoubleClick={() => handleCollectionDoubleClick(collection)}
                   onMouseEnter={() => setHoveredCollectionId(collection.id)}
                   onMouseLeave={() => setHoveredCollectionId(null)}
                   onDropdownOpenChange={(open) => setCollectionDropdownId(open ? collection.id : null)}
                   onRename={() => handleCollectionDoubleClick(collection)}
-                  onRenameSubmit={handleRenameSubmit}
-                  onRenameCancel={handleRenameCancel}
+                  onRenameSubmit={collectionRename.submitRename}
+                  onRenameCancel={collectionRename.cancelRename}
                   onDelete={() => handleCollectionDelete(collection.id)}
                 />
               ))}

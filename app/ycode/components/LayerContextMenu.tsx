@@ -281,6 +281,11 @@ export default function LayerContextMenu({
     }
   };
 
+  const handleRename = () => {
+    if (!layer) return;
+    useEditorStore.getState().setRenamingLayerId(layerId);
+  };
+
   const handleCopyStyle = () => {
     if (!layer) return;
 
@@ -430,6 +435,7 @@ export default function LayerContextMenu({
 
   const handleShowJSON = () => {
     if (!layer) return;
+    console.log('Layer:', layer);
   };
 
   const handleSaveAsLayout = () => {
@@ -570,8 +576,6 @@ export default function LayerContextMenu({
           </ContextMenuSubContent>
         </ContextMenuSub>
 
-        <ContextMenuSeparator />
-
         <ContextMenuItem onClick={handleDuplicate} disabled={!canCopy}>
           Duplicate
           <ContextMenuShortcut>⌘D</ContextMenuShortcut>
@@ -585,10 +589,17 @@ export default function LayerContextMenu({
           <ContextMenuShortcut>⌫</ContextMenuShortcut>
         </ContextMenuItem>
 
+        <ContextMenuSeparator />
+
+        <ContextMenuItem onClick={handleRename} disabled={isBody}>
+          Rename
+          <ContextMenuShortcut>F2</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator />
+
         {!isComponentInstance && (
           <>
-            <ContextMenuSeparator />
-
             <ContextMenuItem onClick={handleCopyStyle}>
               Copy style
               <ContextMenuShortcut>⌥⌘C</ContextMenuShortcut>

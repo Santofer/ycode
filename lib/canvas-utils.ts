@@ -21,12 +21,14 @@ export const CANVAS_PADDING = CANVAS_BORDER * 2;
  */
 export function getCanvasIframeHtml(mountId: string = 'canvas-mount'): string {
   return `<!DOCTYPE html>
-<html style="height: 100%;">
+<html class="h-full">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style type="text/tailwindcss">
+    @custom-variant current (&[aria-current]);
+    @custom-variant disabled (&:is(:disabled, [aria-disabled]));
     @theme {
       /* Use default Tailwind theme */
     }
@@ -43,10 +45,10 @@ export function getCanvasIframeHtml(mountId: string = 'canvas-mount'): string {
       background-size: 16px 16px !important;
     }
   </style>
-  <link rel="stylesheet" href="/canvas.css">
+  <link rel="stylesheet" href="/canvas.css?v=0.2.1.1">
 </head>
-<body style="margin: 0; padding: 0; height: 100%;">
-  <div id="${mountId}" style="height: 100%;"></div>
+<body class="h-full">
+  <div id="${mountId}" class="contents"></div>
 </body>
 </html>`;
 }
