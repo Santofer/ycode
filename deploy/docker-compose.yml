@@ -208,7 +208,7 @@ services:
       MAX_REPLICATION_LAG_MB: 500
       SLOT_NAME_SUFFIX:
     healthcheck:
-      test: ["CMD-SHELL", "curl -sSfL -o /dev/null http://127.0.0.1:4000/api/tenants/realtime-dev/health"]
+      test: ["CMD-SHELL", "curl -sSfL -o /dev/null http://127.0.0.1:4000/"]
       interval: 10s
       timeout: 5s
       retries: 5
