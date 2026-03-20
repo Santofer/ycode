@@ -208,10 +208,10 @@ services:
       MAX_REPLICATION_LAG_MB: 500
       SLOT_NAME_SUFFIX:
     healthcheck:
-      test: ["CMD-SHELL", "curl -sSfL --head -o /dev/null http://127.0.0.1:4000/api/ping"]
+      test: ["CMD-SHELL", "curl -sSfL -o /dev/null http://127.0.0.1:4000/api/tenants/realtime-dev/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 15s
     depends_on:
       db:
@@ -398,6 +398,7 @@ services:
     restart: unless-stopped
     networks: [ycode-net]
     environment:
+      HOSTNAME: 0.0.0.0
       STUDIO_PG_META_URL: http://meta:8080
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DEFAULT_ORGANIZATION_NAME: ${STUDIO_DEFAULT_ORGANIZATION:-Ycode}
